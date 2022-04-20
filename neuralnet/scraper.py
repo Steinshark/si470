@@ -12,13 +12,16 @@ import hashlib
 import argparse
 import random
 from glob import glob
-
+from selenium.webdriver.common.by import *
+from selenium.webdriver.chrome.options import Options
 DRIVER_PATH="./chromedriver"
 target_path='./images'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('search_term')
 args=parser.parse_args()
+# handle spaces in terms
+dir_name = '_'.join(args.search_term.lower().split(' '))
 
 def fetch_image_urls(query, max_links_to_fetch, wd, sleep_between_interactions=1):
     def scroll_to_end(wd):
@@ -34,14 +37,16 @@ def fetch_image_urls(query, max_links_to_fetch, wd, sleep_between_interactions=1
     image_urls = set()
     image_count = 0
     results_start = 0
+
     while image_count < max_links_to_fetch:
+        print(f"we found {image_count} images")
         scroll_to_end(wd)
 
         # get all image thumbnail results
-        thumbnail_results = wd.find_elements_by_css_selector("img.Q4LuWd")
+        thumbnail_results = wd.find_elements(by=By.CSS_SELECTOR,value= "img.Q4LuWd")
         number_results = len(thumbnail_results)
 
-        print(f"Found: {number_results} search results. Extracting links from {results_start}:{number_results}")
+        print(f"\tFound: {number_results} search results. Extracting links from {results_start}:{number_results}")
 
         for img in thumbnail_results[results_start:number_results]:
             # try to click every thumbnail such that we can get the real image behind it
@@ -52,19 +57,19 @@ def fetch_image_urls(query, max_links_to_fetch, wd, sleep_between_interactions=1
                 continue
 
             # extract image urls
-            actual_images = wd.find_elements_by_css_selector('img.n3VNCb')
+            actual_images = wd.find_elements(by=By.CSS_SELECTOR,value='img.n3VNCb')
             for actual_image in actual_images:
                 if actual_image.get_attribute('src') and 'http' in actual_image.get_attribute('src'):
                     image_urls.add(actual_image.get_attribute('src'))
             image_count = len(image_urls)
 
             if len(image_urls) >= max_links_to_fetch:
-                print(f"Found: {len(image_urls)} image links, done!")
+                print(f"\tFound: {len(image_urls)} image links, done!")
                 break
         else:
-            print("Found:", len(image_urls), "image links, looking for more ...")
-            time.sleep(30)
-            load_more_button = wd.find_element_by_css_selector(".mye4qd")
+            print("\tFound:", len(image_urls), "image links, looking for more ...")
+            time.sleep(sleep_between_interactions)
+            load_more_button = wd.find_elements(by=By.CSS_SELECTOR,value=".mye4qd")
             if load_more_button:
                 wd.execute_script("document.querySelector('.mye4qd').click();")
 
@@ -95,24 +100,28 @@ def search_and_download(search_term,driver_path,target_path='./images',number_im
     if not os.path.exists(target_folder):
       os.makedirs(target_folder)
 
-    with webdriver.Chrome(executable_path=driver_path) as wd:
-        res = fetch_image_urls(search_term, number_images, wd=wd, sleep_between_interactions=0.5)
+    c_options = Options()
+    c_options.add_argument("--headless")
+    c_options.add_argument("--log-level=3")
+    with webdriver.Chrome(executable_path=driver_path,options=c_options) as wd:
+        res = fetch_image_urls(search_term, number_images, wd=wd, sleep_between_interactions=0.2)
         print(f"res: {res}")
     for elem in res:
       persist_image(target_folder,elem)
 
-search_and_download(search_term=args.search_term,driver_path=DRIVER_PATH,number_images=120,target_path=target_path)
+search_and_download(search_term=args.search_term,driver_path=DRIVER_PATH,number_images=400,target_path=target_path)
+
 os.chdir(target_path)
 for dataset in ['training','validation']:
-  tgt=f'{dataset}/{args.search_term}'
+  tgt=f'{dataset}/{dir_name}'
   if not os.path.exists(tgt):
     os.makedirs(tgt)
-imgs=list(glob(f'{args.search_term}/*'))
+imgs=list(glob(f'{dir_name}/*'))
 random.shuffle(imgs)
 for img in imgs[:int(len(imgs)/6)]:
   fn=os.path.basename(img)
-  os.rename(img,f'validation/{args.search_term}/{fn}')
+  os.rename(img,f'validation/{dir_name}/{fn}')
 for img in imgs[int(len(imgs)/6):]:
   fn=os.path.basename(img)
-  os.rename(img,f'training/{args.search_term}/{fn}')
-os.rmdir(args.search_term)
+  os.rename(img,f'training/{dir_name}/{fn}')
+os.rmdir(dir_name)
